@@ -650,9 +650,9 @@ class TubeViewWidget(QOpenGLWidget):
             seg = pipe_line[i:i+2]
             vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=pipe_radius, n_points=pipe_n_points_circle)
             
-            # Distribute red intensity linearly from 0 (white) to 1000 (full red).
+            # Distribute red intensity linearly from 0 (white) to 200 (full red).
             segment_force_value = 1000.0 * 0.5 * (self.smoothed_contact_forces[i] + self.smoothed_contact_forces[i + 1])
-            normalized_force = min(1.0, max(0.0, segment_force_value / 1000.0))
+            normalized_force = min(1.0, max(0.0, segment_force_value / 200.0))
             color = (1.0, 1.0 - normalized_force, 1.0 - normalized_force, 1.0)
             
             self.pipe_segments.append((vertices, faces, normals, color))

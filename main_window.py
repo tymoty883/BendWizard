@@ -23,7 +23,7 @@ from tube_utils import simulate_pipe_deflection
 
 def analyze_pipe_stress(
     centerline: np.ndarray,
-    outer_diameter_mm: float = constants.PIPE_OUTER_DIAMETER_MM,
+    outer_diameter_mm: float,
     thickness_mm: float = constants.PIPE_WALL_THICKNESS_MM,
     E: float = constants.STEEL_YOUNGS_MODULUS_PA
 ) -> List[Dict]:
@@ -272,8 +272,8 @@ class MainWindow(QMainWindow):
         self.current_centerline_data: Optional[Dict] = None
         self.iterations: int = constants.DEFAULT_ITERATIONS
         self.borehole_diameter_inch: int = constants.DEFAULT_BOREHOLE_DIAMETER_INCH
-        self.tube_radius_m: float = 0.6096
-        self.tube_radius_unit: str = "mm"
+        self.pipe_diameter_m: float = constants.PIPE_OUTER_DIAMETER_M
+        self.pipe_diameter_unit: str = "mm"
         self.display_popup: Optional[ToolbarPopupPanel] = None
         self.geometry_popup: Optional[ToolbarPopupPanel] = None
 
@@ -426,25 +426,25 @@ class MainWindow(QMainWindow):
         toggle_segment_btn.clicked.connect(self.view.toggle_segment_numbers)
         self.display_popup.addWidget(toggle_segment_btn)
 
-        # Add pipe radius input with unit conversion
-        tube_radius_label = QLabel("Tube Radius:")
-        self.geometry_popup.addWidget(tube_radius_label)
+        # Add pipe diameter input with unit conversion
+        pipe_diameter_label = QLabel("Pipe Diameter:")
+        self.geometry_popup.addWidget(pipe_diameter_label)
 
-        self.tube_radius_input = QLineEdit()
-        self.tube_radius_input.setFixedWidth(80)
-        self.tube_radius_input.setAlignment(Qt.AlignRight)
-        self.tube_radius_input.setValidator(QDoubleValidator(0.0001, 100000.0, 4, self))
-        self.tube_radius_input.returnPressed.connect(self.update_tube_radius_from_input)
-        self.tube_radius_input.editingFinished.connect(self.update_tube_radius_from_input)
-        self.geometry_popup.addWidget(self.tube_radius_input)
+        self.pipe_diameter_input = QLineEdit()
+        self.pipe_diameter_input.setFixedWidth(80)
+        self.pipe_diameter_input.setAlignment(Qt.AlignRight)
+        self.pipe_diameter_input.setValidator(QDoubleValidator(0.0001, 100000.0, 4, self))
+        self.pipe_diameter_input.returnPressed.connect(self.update_pipe_diameter_from_input)
+        self.pipe_diameter_input.editingFinished.connect(self.update_pipe_diameter_from_input)
+        self.geometry_popup.addWidget(self.pipe_diameter_input)
 
-        self.tube_radius_unit_combo = QComboBox()
-        self.tube_radius_unit_combo.addItems(["mm", "in"])
-        self.tube_radius_unit_combo.setCurrentText(self.tube_radius_unit)
-        self.tube_radius_unit_combo.currentTextChanged.connect(self.on_tube_radius_unit_changed)
-        self.geometry_popup.addWidget(self.tube_radius_unit_combo)
+        self.pipe_diameter_unit_combo = QComboBox()
+        self.pipe_diameter_unit_combo.addItems(["mm", "in"])
+        self.pipe_diameter_unit_combo.setCurrentText(self.pipe_diameter_unit)
+        self.pipe_diameter_unit_combo.currentTextChanged.connect(self.on_pipe_diameter_unit_changed)
+        self.geometry_popup.addWidget(self.pipe_diameter_unit_combo)
 
-        self._sync_tube_radius_input_text()
+        self._sync_pipe_diameter_input_text()
         
         # Add label for iterations
         iterations_label = QLabel("Iterations:")
@@ -503,39 +503,39 @@ class MainWindow(QMainWindow):
         """Format numeric radius values for display in line edit."""
         return f"{value:.4f}".rstrip("0").rstrip(".")
 
-    def _sync_tube_radius_input_text(self) -> None:
-        """Update tube radius input text from internal meter value and selected unit."""
-        if self.tube_radius_unit == "in":
-            display_value = self.tube_radius_m / 0.0254
+    def _sync_pipe_diameter_input_text(self) -> None:
+        """Update pipe diameter input text from internal meter value and selected unit."""
+        if self.pipe_diameter_unit == "in":
+            display_value = self.pipe_diameter_m / 0.0254
         else:
-            display_value = self.tube_radius_m * 1000.0
-        self.tube_radius_input.setText(self._format_radius_value(display_value))
+            display_value = self.pipe_diameter_m * 1000.0
+        self.pipe_diameter_input.setText(self._format_radius_value(display_value))
 
-    def on_tube_radius_unit_changed(self, unit: str) -> None:
-        """Switch displayed unit for tube radius while preserving physical value."""
+    def on_pipe_diameter_unit_changed(self, unit: str) -> None:
+        """Switch displayed unit for pipe diameter while preserving physical value."""
         if unit not in ("mm", "in"):
             return
-        self.tube_radius_unit = unit
-        self._sync_tube_radius_input_text()
+        self.pipe_diameter_unit = unit
+        self._sync_pipe_diameter_input_text()
 
-    def update_tube_radius_from_input(self) -> None:
-        """Validate and apply tube radius entered by the user."""
-        text = self.tube_radius_input.text().strip()
+    def update_pipe_diameter_from_input(self) -> None:
+        """Validate and apply pipe diameter entered by the user."""
+        text = self.pipe_diameter_input.text().strip()
         try:
             value = float(text)
             if value <= 0:
                 raise ValueError
 
-            if self.tube_radius_unit == "in":
-                self.tube_radius_m = value * 0.0254
+            if self.pipe_diameter_unit == "in":
+                self.pipe_diameter_m = value * 0.0254
             else:
-                self.tube_radius_m = value / 1000.0
+                self.pipe_diameter_m = value / 1000.0
 
-            self._sync_tube_radius_input_text()
+            self._sync_pipe_diameter_input_text()
             self.update_pipe_deflection()
         except ValueError:
-            self._sync_tube_radius_input_text()
-            QMessageBox.warning(self, "Invalid Input", "Tube radius must be a positive number")
+            self._sync_pipe_diameter_input_text()
+            QMessageBox.warning(self, "Invalid Input", "Pipe diameter must be a positive number")
     
         
     def load_data_files(self) -> None:
@@ -634,11 +634,11 @@ class MainWindow(QMainWindow):
             # Imported radii represent curvature metadata, not local bore clearance.
             bore_diameter_inch = self.borehole_diameter_inch
             bore_radius = bore_diameter_inch * 0.0254 / 2
-            tube_radius = self.tube_radius_m
+            pipe_radius = self.pipe_diameter_m / 2.0
 
             deflected_centerline, contact_points, contact_positions, contact_forces = simulate_pipe_deflection(
                 centerline,
-                tube_radius=tube_radius,
+                tube_radius=pipe_radius,
                 bore_radius=bore_radius,
                 stiffness=0.1,
                 iterations=self.iterations,
@@ -646,7 +646,7 @@ class MainWindow(QMainWindow):
 
             # Update the view with new deflection data and contact forces
             self.view.load_tube_data(centerline, radii, deflected_centerline, contact_points, contact_positions, contact_forces,
-                                    bore_radius=bore_radius, pipe_radius=tube_radius)
+                                    bore_radius=bore_radius, pipe_radius=pipe_radius)
 
             # Update contact points visualization
             from tube_utils import compute_contact_angles
@@ -670,7 +670,10 @@ class MainWindow(QMainWindow):
             self.view.update()
 
             # Run pipe stress analysis with the new deflection
-            self.pipe_stress_data = analyze_pipe_stress(deflected_centerline)
+            self.pipe_stress_data = analyze_pipe_stress(
+                deflected_centerline,
+                outer_diameter_mm=self.pipe_diameter_m * 1000.0,
+            )
             self.view.set_pipe_stress_data(self.pipe_stress_data)
             for d in self.pipe_stress_data:
                 print(d)

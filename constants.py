@@ -8,14 +8,14 @@ Extracted from magic numbers to improve maintainability and flexibility.
 # ============================================================================
 
 # Outer diameter of the pipe (DN1016) in millimeters
-PIPE_OUTER_DIAMETER_MM = 1016.0
+PIPE_OUTER_DIAMETER_MM = 609.6
 
 # Wall thickness in millimeters
 PIPE_WALL_THICKNESS_MM = 20.0
 
 # Converted to meters for internal calculations
 PIPE_OUTER_DIAMETER_M = PIPE_OUTER_DIAMETER_MM / 1000.0
-PIPE_RADIUS_M = (PIPE_OUTER_DIAMETER_MM / 2.0) * 0.0254  # ~0.6096 m
+PIPE_RADIUS_M = PIPE_OUTER_DIAMETER_M / 2.0  # ~0.508 m
 
 # Young's modulus for steel (Pa)
 STEEL_YOUNGS_MODULUS_PA = 206e9
