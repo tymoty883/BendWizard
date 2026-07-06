@@ -29,17 +29,19 @@ class TubeViewWidget(QOpenGLWidget):
     def __init__(self, parent=None):
         super(TubeViewWidget, self).__init__(parent)
         self.setMinimumSize(800, 600)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.pipe_stress_data = None
 
         
         self.centerline = None
         self.drill_centerline = None
-        self.outer_tube_segments = []
+        self.borehole_segments = []
         self.drill_tube_segments = []
         self.rings = []
         self.distance_labels = []
         self.segment_labels = []
         self.segment_radii = []
+        self.world_origin = np.zeros(3, dtype=float)
         
         # Camera settings
         self.camera_distance = 1000
@@ -57,7 +59,7 @@ class TubeViewWidget(QOpenGLWidget):
         
         # Visibility flags
         self.show_drill_tube = False
-        self.show_outer_tube = False
+        self.show_borehole = False
         self.show_distance_labels = True
         self.show_segment_numbers = False
         self.show_force_labels = True  # <--- NEW for force labels
@@ -107,10 +109,8 @@ class TubeViewWidget(QOpenGLWidget):
         # Enable higher quality rendering
         glEnable(GL_POINT_SMOOTH)
         glEnable(GL_LINE_SMOOTH)
-        glEnable(GL_POLYGON_SMOOTH)
         glHint(GL_POINT_SMOOTH_HINT, GL_NICEST)
         glHint(GL_LINE_SMOOTH_HINT, GL_NICEST)
-        glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST)
         
         # Enable depth testing with proper configuration for better precision
         glEnable(GL_DEPTH_TEST)
@@ -156,9 +156,8 @@ class TubeViewWidget(QOpenGLWidget):
         glEnable(GL_COLOR_MATERIAL)
         glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE)
         
-        # Enable blending for transparent objects
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # Keep blending disabled for opaque mesh pass to avoid sorting artifacts.
+        glDisable(GL_BLEND)
         
         # Enable line smoothing
         glEnable(GL_LINE_SMOOTH)
@@ -167,9 +166,8 @@ class TubeViewWidget(QOpenGLWidget):
         # Enable automatic normalization of normals
         glEnable(GL_NORMALIZE)
         
-        # Enable polygon smoothing
-        glEnable(GL_POLYGON_SMOOTH)
-        glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST)
+        # Polygon smoothing often causes depth artifacts with 3D meshes; keep it disabled.
+        glDisable(GL_POLYGON_SMOOTH)
         
     def resizeGL(self, width, height):
         glViewport(0, 0, width, height)
@@ -180,10 +178,10 @@ class TubeViewWidget(QOpenGLWidget):
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         
-        # Use a better near and far plane setup to improve depth buffer precision
-        # The near plane shouldn't be too close to zero to avoid precision issues
-        near_plane = max(1.0, self.camera_distance / 100.0)
-        far_plane = max(100000, self.camera_distance * 100.0)
+        # Keep near/far tight around the scene to reduce depth-buffer jitter.
+        scene_extent = max(100.0, getattr(self, 'tube_size', 1000.0))
+        near_plane = max(0.5, self.camera_distance / 50.0)
+        far_plane = max(near_plane + 1000.0, self.camera_distance + scene_extent * 6.0)
         
         gluPerspective(60, self.aspect_ratio, near_plane, far_plane)
         
@@ -223,9 +221,9 @@ class TubeViewWidget(QOpenGLWidget):
         glDepthFunc(GL_LESS)
         glDepthMask(GL_TRUE)
         
-        # Draw outer tube segments first (opaque objects)
-        if hasattr(self, 'outer_tube_display_list') and self.show_outer_tube:
-            glCallList(self.outer_tube_display_list)
+        # Draw borehole segments first (opaque objects)
+        if hasattr(self, 'borehole_display_list') and self.show_borehole:
+            glCallList(self.borehole_display_list)
         
         # Draw drill tube segments using display lists if visible and available
         if hasattr(self, 'drill_tube_display_list') and self.drill_tube_display_list is not None and self.show_drill_tube:
@@ -333,10 +331,6 @@ class TubeViewWidget(QOpenGLWidget):
         # Enable smooth shading
         glShadeModel(GL_SMOOTH)
         
-        # Enable better quality rendering
-        glEnable(GL_POLYGON_SMOOTH)
-        glHint(GL_POLYGON_SMOOTH_HINT, GL_NICEST)
-        
         # Use material properties for better lighting and reflections
         glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, [color[0]*0.3, color[1]*0.3, color[2]*0.3, color[3]])
         glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, [color[0], color[1], color[2], color[3]])
@@ -372,9 +366,11 @@ class TubeViewWidget(QOpenGLWidget):
     
     def mousePressEvent(self, event):
         self.last_mouse_pos = event.pos()
+        event.accept()
     
     def mouseReleaseEvent(self, event):
-        pass
+        self.last_mouse_pos = None
+        event.accept()
         
     def mouseMoveEvent(self, event):
         if self.last_mouse_pos is None:
@@ -401,37 +397,23 @@ class TubeViewWidget(QOpenGLWidget):
         elif event.buttons() & Qt.MiddleButton:
             # Zoom camera
             zoom_speed = 0.01
-            min_step = 10.0
             new_distance = self.camera_distance * (1 - dy * zoom_speed)
-            # Enforce minimum step
-            if abs(new_distance - self.camera_distance) < min_step:
-                if new_distance < self.camera_distance:
-                    new_distance = self.camera_distance - min_step
-                else:
-                    new_distance = self.camera_distance + min_step
-            self.camera_distance = max(0.1, min(1000, new_distance))
+            # Keep a tiny positive distance to avoid singular camera placement.
+            self.camera_distance = max(1e-6, new_distance)
         
         self.last_mouse_pos = event.pos()
         self.update()
+        event.accept()
         
     def wheelEvent(self, event):
         # Zoom with mouse wheel
         zoom_factor = 1.1
-        min_step = 10.0
-        old_distance = self.camera_distance
         if event.angleDelta().y() > 0:
             # Zoom in
-            new_distance = self.camera_distance / zoom_factor
-            # Enforce minimum step
-            if abs(new_distance - self.camera_distance) < min_step:
-                new_distance = self.camera_distance - min_step
-            self.camera_distance = max(1, new_distance)
+            self.camera_distance = max(1e-6, self.camera_distance / zoom_factor)
         else:
             # Zoom out
-            new_distance = self.camera_distance * zoom_factor
-            if abs(new_distance - self.camera_distance) < min_step:
-                new_distance = self.camera_distance + min_step
-            self.camera_distance = min(10000, new_distance)
+            self.camera_distance = self.camera_distance * zoom_factor
         self.update()
 
     def updateFPS(self):
@@ -452,27 +434,25 @@ class TubeViewWidget(QOpenGLWidget):
         self.update()
         print(f"Drill tube {'visible' if self.show_drill_tube else 'hidden'}")
         
-    def toggle_outer_tube(self):
-        self.show_outer_tube = not self.show_outer_tube
+    def toggle_borehole(self):
+        self.show_borehole = not self.show_borehole
         self.update()
-        print(f"Outer tube {'visible' if self.show_outer_tube else 'hidden'}")
+        print(f"Borehole {'visible' if self.show_borehole else 'hidden'}")
         
-    def toggle_distance_labels(self):
+    def toggle_distance_labels(self) -> None:
+        """Toggle distance labels visibility."""
         self.show_distance_labels = not self.show_distance_labels
         self.update()
         print(f"Distance labels {'visible' if self.show_distance_labels else 'hidden'}")
 
-    def toggle_force_labels(self):
-        self.show_force_labels = not self.show_force_labels
-        self.update()
-        print(f"Force labels {'visible' if self.show_force_labels else 'hidden'}")
-
-    def toggle_force_labels(self):
+    def toggle_force_labels(self) -> None:
+        """Toggle contact force labels visibility."""
         self.show_force_labels = not self.show_force_labels
         self.update()
         print(f"Force labels {'visible' if self.show_force_labels else 'hidden'}")
         
-    def toggle_segment_numbers(self):
+    def toggle_segment_numbers(self) -> None:
+        """Toggle segment number labels visibility."""
         self.show_segment_numbers = not self.show_segment_numbers
         self.update()
         print(f"Segment numbers {'visible' if self.show_segment_numbers else 'hidden'}")
@@ -587,8 +567,24 @@ class TubeViewWidget(QOpenGLWidget):
             
         return labels 
 
-    def load_tube_data(self, centerline, radii, drill_centerline=None, contact_points=None, contact_positions=None, contact_forces=None, bore_radius=None):
-        self.contact_positions = contact_positions  # zaktualizowane 
+    def load_tube_data(self, centerline, radii, drill_centerline=None, contact_points=None, contact_positions=None, contact_forces=None, bore_radius=None, pipe_radius=None):
+        if centerline is None or len(centerline) == 0:
+            return
+
+        # Render in a local frame to reduce depth precision artifacts on large UTM coordinates.
+        world_origin = np.asarray(centerline[0], dtype=float)
+        self.world_origin = world_origin
+
+        centerline_local = np.asarray(centerline, dtype=float) - world_origin
+        drill_centerline_local = None
+        if drill_centerline is not None:
+            drill_centerline_local = np.asarray(drill_centerline, dtype=float) - world_origin
+
+        if contact_positions is not None:
+            self.contact_positions = [np.asarray(pos, dtype=float) - world_origin for pos in contact_positions]
+        else:
+            self.contact_positions = None
+
         # Smooth the contact forces for better visualization
         self.contact_forces = np.array(contact_forces) if contact_forces is not None else np.zeros(len(centerline))
         if len(self.contact_forces) > 2:
@@ -598,15 +594,15 @@ class TubeViewWidget(QOpenGLWidget):
         else:
             self.smoothed_contact_forces = self.contact_forces
 
-        # Don't reset view when updating tube data
-        is_first_load = not hasattr(self, 'centerline')
-        self.set_centerline(centerline, reset_view=is_first_load)
+        # Reset view on first load only, preserve camera on subsequent updates.
+        is_first_load = self.centerline is None
+        self.set_centerline(centerline_local, reset_view=is_first_load)
 
         self.radii = radii
-        self.drill_centerline = drill_centerline
+        self.drill_centerline = drill_centerline_local
         self.contact_points = contact_points
 
-        self.outer_tube_segments = []
+        self.borehole_segments = []
         self.pipe_segments = []
         self.drill_tube_segments = []
         self.rings = []
@@ -615,62 +611,60 @@ class TubeViewWidget(QOpenGLWidget):
         self.segment_radii = radii
         self.contact_points = contact_points  # n
 
-        pipe_radius = 40 * 0.0254 / 2  # Promień rury DN1016 (średnica 1016 mm) (ścianka 20mm)
+        if pipe_radius is None:
+            pipe_radius = 0.6096
+        self.pipe_radius = pipe_radius
 
         n_points_circle = 12 
 
-        # Use dynamic bore_radius for outer tube
+        # Use dynamic bore_radius for borehole
         if bore_radius is None:
             bore_radius = 56 * 0.0254 / 2
 
         self.bore_radius = bore_radius
 
         # Delete old display lists
-        for attr in ['centerline_display_list', 'outer_tube_display_list',
+        for attr in ['centerline_display_list', 'borehole_display_list',
                     'pipe_display_list', 'drill_tube_display_list', 'rings_display_list']:
             if hasattr(self, attr):
                 glDeleteLists(getattr(self, attr), 1)
 
-        # --- Tworzenie zewnętrznego otworu (Outer tube) ---
+        # --- Borehole mesh generation ---
         tube1_radius = bore_radius
         n_points_circle = 12 
         
-        for i in range(len(centerline) - 1):
-            seg = centerline[i:i+2]
+        for i in range(len(centerline_local) - 1):
+            seg = centerline_local[i:i+2]
             vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=tube1_radius, n_points=n_points_circle)
             # Use radius for segment (if available) to determine color
             if self.segment_radii is not None and len(self.segment_radii) > i and self.segment_radii[i] is not None:
                 color = ColorUtils.get_gradient_color(self.segment_radii[i])
             else:
                 color = (0.5, 0.5, 0.5, 0.5)  # Default gray if no radius
-            self.outer_tube_segments.append((vertices, faces, normals, color))
+            self.borehole_segments.append((vertices, faces, normals, color))
         
-        pipe_line = drill_centerline if drill_centerline is not None else centerline
+        pipe_line = drill_centerline_local if drill_centerline_local is not None else centerline_local
         pipe_n_points_circle = n_points_circle
 
         for i in range(len(pipe_line) - 1):
             seg = pipe_line[i:i+2]
             vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=pipe_radius, n_points=pipe_n_points_circle)
             
-            # Gradient color based on smoothed contact force
-            force = 11 * (self.smoothed_contact_forces[i] + self.smoothed_contact_forces[i+1])
-            print(force)
-            if force > 0:
-                color = (1.0, 1.0 - force, 1.0 - force, 1.0)
-                print(color)
-            else:
-                color = (1.0, 1.0, 1.0, 1.0)
+            # Distribute red intensity linearly from 0 (white) to 1000 (full red).
+            segment_force_value = 1000.0 * 0.5 * (self.smoothed_contact_forces[i] + self.smoothed_contact_forces[i + 1])
+            normalized_force = min(1.0, max(0.0, segment_force_value / 1000.0))
+            color = (1.0, 1.0 - normalized_force, 1.0 - normalized_force, 1.0)
             
             self.pipe_segments.append((vertices, faces, normals, color))
 
         # === Drill tube model (if any) ===
-        if drill_centerline is not None and len(drill_centerline) > 1:
-            tube2_radius = 40 * 0.0254 / 2
-            drill_n_points = max(16, min(32, int(150000 / len(drill_centerline))))
+        if drill_centerline_local is not None and len(drill_centerline_local) > 1:
+            tube2_radius = pipe_radius
+            drill_n_points = max(16, min(32, int(150000 / len(drill_centerline_local))))
             print(f"Using {drill_n_points} points per circle for drill tube")
 
-            for i in range(len(drill_centerline) - 1):
-                seg = drill_centerline[i:i+2]
+            for i in range(len(drill_centerline_local) - 1):
+                seg = drill_centerline_local[i:i+2]
                 vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=tube2_radius, n_points=drill_n_points)
                 self.drill_tube_segments.append((vertices, faces, normals, (0.8, 0, 0.8, 1.0)))  # magenta
 
@@ -720,32 +714,32 @@ class TubeViewWidget(QOpenGLWidget):
                 binormals[i] = np.cross(tangents[i], normals[i])
             return normals, binormals
 
-        tangents = np.zeros_like(centerline)
-        tangents[1:-1] = centerline[2:] - centerline[:-2]
-        tangents[0] = centerline[1] - centerline[0]
-        tangents[-1] = centerline[-1] - centerline[-2]
+        tangents = np.zeros_like(centerline_local)
+        tangents[1:-1] = centerline_local[2:] - centerline_local[:-2]
+        tangents[0] = centerline_local[1] - centerline_local[0]
+        tangents[-1] = centerline_local[-1] - centerline_local[-2]
         tangents /= np.linalg.norm(tangents, axis=1, keepdims=True)
-        normals, binormals = compute_rotation_minimizing_frames(centerline)
+        normals, binormals = compute_rotation_minimizing_frames(centerline_local)
         theta = np.linspace(0, 2 * np.pi, n_ring_points, endpoint=True)
 
-        for i in range(1, len(centerline)-1):
-            center = centerline[i]
+        for i in range(1, len(centerline_local)-1):
+            center = centerline_local[i]
             n = normals[i]
             b = binormals[i]
             ring_points = center + ring_radius * (np.cos(theta)[:, None] * n + np.sin(theta)[:, None] * b)
             self.rings.append((ring_points, (0, 0, 0)))
 
         # === Segment numbers ===
-        for i in range(len(centerline) - 1):
-            midpoint = (centerline[i] + centerline[i+1]) / 2
+        for i in range(len(centerline_local) - 1):
+            midpoint = (centerline_local[i] + centerline_local[i+1]) / 2
             self.segment_labels.append((midpoint, i))
 
         # === Distance labels ===
-        if len(centerline) > 1:
+        if len(centerline_local) > 1:
             total_distance = 0
             distances = [0]
-            for i in range(1, len(centerline)):
-                total_distance += np.linalg.norm(centerline[i] - centerline[i-1])
+            for i in range(1, len(centerline_local)):
+                total_distance += np.linalg.norm(centerline_local[i] - centerline_local[i-1])
                 distances.append(total_distance)
 
             interval = 100  # meters
@@ -754,7 +748,7 @@ class TubeViewWidget(QOpenGLWidget):
                 for i in range(1, len(distances)):
                     if distances[i-1] <= current_distance <= distances[i]:
                         t = (current_distance - distances[i-1]) / (distances[i] - distances[i-1])
-                        pos = centerline[i-1] + t * (centerline[i] - centerline[i-1])
+                        pos = centerline_local[i-1] + t * (centerline_local[i] - centerline_local[i-1])
                         offset = np.array([0, 0, tube1_radius * 3])
                         self.distance_labels.append((pos + offset, current_distance))
                         break
@@ -763,8 +757,8 @@ class TubeViewWidget(QOpenGLWidget):
         # === Generate display lists ===
         self.createDisplayLists()
         self.update()
-        if drill_centerline is not None:
-            print("deflected_centerline offset:", np.max(np.linalg.norm(np.array(drill_centerline) - np.array(centerline), axis=1)))
+        if drill_centerline_local is not None:
+            print("deflected_centerline offset:", np.max(np.linalg.norm(np.array(drill_centerline_local) - np.array(centerline_local), axis=1)))
         else:
             print("drill_centerline is None")
 
@@ -777,10 +771,10 @@ class TubeViewWidget(QOpenGLWidget):
         self.drawCenterline()
         glEndList()
         
-        # Create outer tube display list
-        self.outer_tube_display_list = glGenLists(1)
-        glNewList(self.outer_tube_display_list, GL_COMPILE)
-        # Enable depth writing for outer tube
+        # Create borehole display list
+        self.borehole_display_list = glGenLists(1)
+        glNewList(self.borehole_display_list, GL_COMPILE)
+        # Enable depth writing for borehole
         glDepthMask(GL_TRUE)
         glEnable(GL_DEPTH_TEST)
         glDepthFunc(GL_LEQUAL)
@@ -789,7 +783,7 @@ class TubeViewWidget(QOpenGLWidget):
         glEnable(GL_POLYGON_OFFSET_FILL)
         glPolygonOffset(1.0, 1.0)
         
-        for i, segment in enumerate(self.outer_tube_segments):
+        for i, segment in enumerate(self.borehole_segments):
             vertices, faces, normals, _ = segment
 
             # Use gradient color based on segment radius
@@ -803,22 +797,6 @@ class TubeViewWidget(QOpenGLWidget):
         glDisable(GL_POLYGON_OFFSET_FILL)
         glEndList()
 
-        # Create pipe segment display list
-        if self.pipe_segments:
-            self.pipe_display_list = glGenLists(1)
-            glNewList(self.pipe_display_list, GL_COMPILE)
-            glEnable(GL_DEPTH_TEST)
-            glEnable(GL_POLYGON_OFFSET_FILL)
-            glPolygonOffset(2.5, 2.5)
-            for segment in self.pipe_segments:
-                vertices, faces, normals, color = segment
-                self.drawMesh(vertices, faces, normals, color)
-            glDisable(GL_POLYGON_OFFSET_FILL)
-            glEndList()
-        else:
-            self.pipe_display_list = None
-
-        
         # Create drill tube display list only if there are drill tube segments
         if self.drill_tube_segments:
             self.drill_tube_display_list = glGenLists(1)
@@ -827,9 +805,9 @@ class TubeViewWidget(QOpenGLWidget):
             glEnable(GL_DEPTH_TEST)
             glDepthFunc(GL_LEQUAL)
             
-            # Apply a different offset for drill tube to prevent z-fighting with outer tube
+            # Apply a different offset for drill tube to prevent z-fighting with borehole
             glEnable(GL_POLYGON_OFFSET_FILL)
-            glPolygonOffset(2.0, 2.0)  # Larger offset than outer tube
+            glPolygonOffset(2.0, 2.0)  # Larger offset than borehole
             
             for segment in self.drill_tube_segments:
                 vertices, faces, normals, color = segment
@@ -957,33 +935,27 @@ class TubeViewWidget(QOpenGLWidget):
                     painter.drawText(int(win_x), int(win_y), text)
         
         # Draw labels for 5 segments with max contact forces (excluding first 20)
-        if self.show_force_labels and hasattr(self, 'smoothed_contact_forces') and hasattr(self, 'segment_labels') and len(self.smoothed_contact_forces) > 20:
-            # Get indices (excluding first 20) of top 5 contact forces
+        if self.show_force_labels and hasattr(self, 'smoothed_contact_forces') and hasattr(self, 'segment_labels'):
             contact_forces = np.array(self.smoothed_contact_forces)
-            if len(contact_forces) > 71:
-                # Ignore first 20 and last 50 segments
-                indices = np.arange(20, len(contact_forces)-50)
-                # Show force value above every segment in this range
+            indices = np.arange(min(len(contact_forces), len(self.segment_labels)))
             for idx in indices:
-                if idx < len(self.segment_labels):
-                    force_val = contact_forces[idx]
-                    if force_val * 1000 > 5:
-                        label_pos, segment_num = self.segment_labels[idx]
-                        # Project 3D point to 2D screen coordinates
-                        viewport = glGetIntegerv(GL_VIEWPORT)
-                        win_x, win_y, win_z = gluProject(
-                            label_pos[0], label_pos[1], label_pos[2],
-                            self.modelview_matrix,
-                            self.projection_matrix,
-                            viewport
-                        )
-                        if win_z < 1.0:
-                            win_y = viewport[3] - win_y
-                            text = f"{force_val*1000:.2f}"
-                            painter.setPen(Qt.black)
-                            for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                                painter.drawText(int(win_x) + dx, int(win_y) + dy - 34, text)
-                            painter.setPen(Qt.red)
-                            painter.drawText(int(win_x), int(win_y) - 34, text)
+                force_val = contact_forces[idx]
+                label_pos, segment_num = self.segment_labels[idx]
+                # Project 3D point to 2D screen coordinates
+                viewport = glGetIntegerv(GL_VIEWPORT)
+                win_x, win_y, win_z = gluProject(
+                    label_pos[0], label_pos[1], label_pos[2],
+                    self.modelview_matrix,
+                    self.projection_matrix,
+                    viewport
+                )
+                if win_z < 1.0:
+                    win_y = viewport[3] - win_y
+                    text = f"{force_val*1000:.2f}"
+                    painter.setPen(Qt.black)
+                    for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                        painter.drawText(int(win_x) + dx, int(win_y) + dy - 34, text)
+                    painter.setPen(Qt.red)
+                    painter.drawText(int(win_x), int(win_y) - 34, text)
 
         painter.end()
