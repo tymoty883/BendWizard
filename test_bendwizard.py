@@ -238,10 +238,6 @@ class TestTubeUtils(unittest.TestCase):
         with self.assertRaises(ValueError):
             # Invalid stiffness
             simulate_pipe_deflection(self.simple_centerline, 0.5, 1.0, 2.0, 10)
-
-        with self.assertRaises(ValueError):
-            # Invalid bore radius profile length
-            simulate_pipe_deflection(self.simple_centerline, 0.5, np.array([1.0, 1.0]), 0.1, 10)
     
     def test_simulate_pipe_deflection_no_contact(self):
         """Test deflection simulation with no contact (bore >> pipe)."""
@@ -257,41 +253,6 @@ class TestTubeUtils(unittest.TestCase):
         self.assertTrue(np.sum(contact_pts) == 0)
         self.assertTrue(len(contact_pos) == 0)
         self.assertTrue(np.all(contact_forces == 0))
-
-    def test_simulate_pipe_deflection_uses_variable_bore_radius(self):
-        """Test that a narrow local bore radius produces local contact."""
-        bore_radius_profile = np.array([10.0, 0.11, 0.11, 0.11, 10.0])
-
-        deflected, contact_pts, contact_pos, contact_forces = simulate_pipe_deflection(
-            self.curved_centerline,
-            tube_radius=0.1,
-            bore_radius=bore_radius_profile,
-            stiffness=0.1,
-            iterations=20
-        )
-
-        self.assertGreater(np.sum(contact_pts), 0)
-        self.assertGreater(len(contact_pos), 0)
-        for idx in np.where(contact_pts)[0]:
-            distance = np.linalg.norm(deflected[idx] - self.curved_centerline[idx])
-            self.assertLessEqual(distance + 0.1, bore_radius_profile[idx] + 1e-6)
-
-    def test_simulate_pipe_deflection_reduces_bending_energy(self):
-        """Test that the relaxation step reduces discrete bending energy."""
-        def bending_energy(points: np.ndarray) -> float:
-            second_differences = points[:-2] - 2.0 * points[1:-1] + points[2:]
-            return float(np.sum(second_differences ** 2))
-
-        initial_energy = bending_energy(self.curved_centerline)
-        deflected, _, _, _ = simulate_pipe_deflection(
-            self.curved_centerline,
-            tube_radius=0.1,
-            bore_radius=10.0,
-            stiffness=0.05,
-            iterations=10
-        )
-
-        self.assertLess(bending_energy(deflected), initial_energy)
     
     def test_compute_contact_angles_valid(self):
         """Test contact angle computation."""

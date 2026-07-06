@@ -31,6 +31,17 @@ STRESS_CRITICAL_LIMIT_PA = 415e6
 # Deflection simulation stiffness parameter (0.0 = rigid, 1.0 = fully flexible)
 DEFLECTION_STIFFNESS = 0.1
 
+# Enable the physics-based solver by default; set False to use legacy behavior.
+USE_PHYSICS_DEFLECTION_SOLVER = True
+
+# Physics solver defaults
+PHYSICS_CONTACT_STIFFNESS = 25.0
+PHYSICS_FRICTION_COEFFICIENT = 0.2
+PHYSICS_STEP_SIZE = 0.02
+PHYSICS_CONVERGENCE_TOLERANCE = 1e-4
+PHYSICS_GRAVITY_WEIGHT = 0.0
+PHYSICS_AXIAL_FORCE_WEIGHT = 0.0
+
 # Default number of iterations for deflection simulation
 DEFAULT_ITERATIONS = 60
 
@@ -69,6 +80,10 @@ BOREHOLE_DIAMETERS_INCHES = [i for i in range(26, 64, 2)]
 
 # Default borehole diameter (in inches)
 DEFAULT_BOREHOLE_DIAMETER_INCH = 56
+
+# Backward-compatible aliases used by existing UI code.
+OUTER_TUBE_DIAMETERS_INCHES = BOREHOLE_DIAMETERS_INCHES
+DEFAULT_OUTER_TUBE_DIAMETER_INCH = DEFAULT_BOREHOLE_DIAMETER_INCH
 
 # Window initial size (pixels)
 WINDOW_DEFAULT_WIDTH = 1000

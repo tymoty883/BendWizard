@@ -23,7 +23,7 @@ from tube_utils import simulate_pipe_deflection
 
 def analyze_pipe_stress(
     centerline: np.ndarray,
-    outer_diameter_mm: float,
+    outer_diameter_mm: float = constants.PIPE_OUTER_DIAMETER_MM,
     thickness_mm: float = constants.PIPE_WALL_THICKNESS_MM,
     E: float = constants.STEEL_YOUNGS_MODULUS_PA
 ) -> List[Dict]:
@@ -263,7 +263,7 @@ class ExcelImportDialog(QDialog):
 class MainWindow(QMainWindow):
     """Main application window with UI orchestration and data coordination."""
     
-    BOREHOLE_DIAMETERS = constants.BOREHOLE_DIAMETERS_INCHES
+    OUTER_TUBE_DIAMETERS = constants.OUTER_TUBE_DIAMETERS_INCHES
     
     def __init__(self):
         super().__init__()
@@ -271,9 +271,9 @@ class MainWindow(QMainWindow):
         self.pipe_stress_data: Optional[List[Dict]] = None
         self.current_centerline_data: Optional[Dict] = None
         self.iterations: int = constants.DEFAULT_ITERATIONS
-        self.borehole_diameter_inch: int = constants.DEFAULT_BOREHOLE_DIAMETER_INCH
-        self.pipe_diameter_m: float = constants.PIPE_OUTER_DIAMETER_M
-        self.pipe_diameter_unit: str = "mm"
+        self.outer_tube_diameter_inch: int = constants.DEFAULT_OUTER_TUBE_DIAMETER_INCH
+        self.tube_radius_m: float = 0.6096
+        self.tube_radius_unit: str = "mm"
         self.display_popup: Optional[ToolbarPopupPanel] = None
         self.geometry_popup: Optional[ToolbarPopupPanel] = None
 
@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
         # Borehole data table
         self.borehole_data_table = QTableWidget()
         self.borehole_data_table.setColumnCount(2)
-        self.borehole_data_table.setHorizontalHeaderLabels(['Segment', 'Radius (m)'])
+        self.borehole_data_table.setHorizontalHeaderLabels(['Segment', 'Curvature Radius (m)'])
         self.borehole_data_table.horizontalHeader().setStretchLastSection(True)
         self.borehole_data_table.setMaximumHeight(600)  # Set maximum height
         self.borehole_data_table.setColumnWidth(0, 80)   # Segment column
@@ -381,28 +381,21 @@ class MainWindow(QMainWindow):
         file_menu.addAction("Load Data Files", self.load_data_files)
         file_button.setMenu(file_menu)
 
-        # Add borehole diameter selector
-        self.diameter_label = QLabel("Borehole Diameter [in]:")
+        # Add outer tube diameter selector
+        self.diameter_label = QLabel("Outer Tube Diameter [in]:")
         self.geometry_popup.addWidget(self.diameter_label)
         self.diameter_combo = QComboBox()
-        for d in self.BOREHOLE_DIAMETERS:
+        for d in self.OUTER_TUBE_DIAMETERS:
             self.diameter_combo.addItem(str(d))
-        self.diameter_combo.setCurrentText(str(self.borehole_diameter_inch))
-        self.diameter_combo.currentTextChanged.connect(self.on_borehole_diameter_changed)
+        self.diameter_combo.setCurrentText(str(self.outer_tube_diameter_inch))
+        self.diameter_combo.currentTextChanged.connect(self.on_outer_tube_diameter_changed)
         self.geometry_popup.addWidget(self.diameter_combo)
         
-        """# Add toggle button for drill tube visibility
-        toggle_drill_btn = QPushButton("Toggle 1600m Radius Model")
-        toggle_drill_btn.setCheckable(True)
-        toggle_drill_btn.setChecked(True)  # Initially visible
-        toggle_drill_btn.clicked.connect(self.view.toggle_drill_tube)
-        toolbar.addWidget(toggle_drill_btn)"""
-        
-        # Add toggle button for borehole visibility
-        toggle_outer_btn = QPushButton("Toggle Borehole")
+        # Add toggle button for outer tube visibility
+        toggle_outer_btn = QPushButton("Toggle Outer Tube")
         toggle_outer_btn.setCheckable(True)
         toggle_outer_btn.setChecked(False)  # Initially visible
-        toggle_outer_btn.clicked.connect(self.view.toggle_borehole)
+        toggle_outer_btn.clicked.connect(self.view.toggle_outer_tube)
         self.display_popup.addWidget(toggle_outer_btn)
         
         # Add toggle button for distance labels
@@ -427,24 +420,24 @@ class MainWindow(QMainWindow):
         self.display_popup.addWidget(toggle_segment_btn)
 
         # Add pipe diameter input with unit conversion
-        pipe_diameter_label = QLabel("Pipe Diameter:")
-        self.geometry_popup.addWidget(pipe_diameter_label)
+        tube_radius_label = QLabel("Pipe Diameter:")
+        self.geometry_popup.addWidget(tube_radius_label)
 
-        self.pipe_diameter_input = QLineEdit()
-        self.pipe_diameter_input.setFixedWidth(80)
-        self.pipe_diameter_input.setAlignment(Qt.AlignRight)
-        self.pipe_diameter_input.setValidator(QDoubleValidator(0.0001, 100000.0, 4, self))
-        self.pipe_diameter_input.returnPressed.connect(self.update_pipe_diameter_from_input)
-        self.pipe_diameter_input.editingFinished.connect(self.update_pipe_diameter_from_input)
-        self.geometry_popup.addWidget(self.pipe_diameter_input)
+        self.tube_radius_input = QLineEdit()
+        self.tube_radius_input.setFixedWidth(80)
+        self.tube_radius_input.setAlignment(Qt.AlignRight)
+        self.tube_radius_input.setValidator(QDoubleValidator(0.0001, 100000.0, 4, self))
+        self.tube_radius_input.returnPressed.connect(self.update_tube_radius_from_input)
+        self.tube_radius_input.editingFinished.connect(self.update_tube_radius_from_input)
+        self.geometry_popup.addWidget(self.tube_radius_input)
 
-        self.pipe_diameter_unit_combo = QComboBox()
-        self.pipe_diameter_unit_combo.addItems(["mm", "in"])
-        self.pipe_diameter_unit_combo.setCurrentText(self.pipe_diameter_unit)
-        self.pipe_diameter_unit_combo.currentTextChanged.connect(self.on_pipe_diameter_unit_changed)
-        self.geometry_popup.addWidget(self.pipe_diameter_unit_combo)
+        self.tube_radius_unit_combo = QComboBox()
+        self.tube_radius_unit_combo.addItems(["mm", "in"])
+        self.tube_radius_unit_combo.setCurrentText(self.tube_radius_unit)
+        self.tube_radius_unit_combo.currentTextChanged.connect(self.on_tube_radius_unit_changed)
+        self.geometry_popup.addWidget(self.tube_radius_unit_combo)
 
-        self._sync_pipe_diameter_input_text()
+        self._sync_tube_radius_input_text()
         
         # Add label for iterations
         iterations_label = QLabel("Iterations:")
@@ -491,50 +484,52 @@ class MainWindow(QMainWindow):
         elif self.geometry_popup is not None:
             self.geometry_popup.hide()
 
-    def on_borehole_diameter_changed(self, value):
-        """Handle changes to the borehole diameter from the dropdown."""
+    def on_outer_tube_diameter_changed(self, value):
+        """Handle changes to the outer tube diameter from the dropdown."""
         try:
-            self.borehole_diameter_inch = int(value)
+            self.outer_tube_diameter_inch = int(value)
         except ValueError:
-            self.borehole_diameter_inch = constants.DEFAULT_BOREHOLE_DIAMETER_INCH
+            self.outer_tube_diameter_inch = 56  # fallback
         self.update_pipe_deflection()
 
     def _format_radius_value(self, value: float) -> str:
         """Format numeric radius values for display in line edit."""
         return f"{value:.4f}".rstrip("0").rstrip(".")
 
-    def _sync_pipe_diameter_input_text(self) -> None:
-        """Update pipe diameter input text from internal meter value and selected unit."""
-        if self.pipe_diameter_unit == "in":
-            display_value = self.pipe_diameter_m / 0.0254
+    def _sync_tube_radius_input_text(self) -> None:
+        """Update pipe diameter input text from internal radius value and selected unit."""
+        diameter_m = self.tube_radius_m * 2.0
+        if self.tube_radius_unit == "in":
+            display_value = diameter_m / 0.0254
         else:
-            display_value = self.pipe_diameter_m * 1000.0
-        self.pipe_diameter_input.setText(self._format_radius_value(display_value))
+            display_value = diameter_m * 1000.0
+        self.tube_radius_input.setText(self._format_radius_value(display_value))
 
-    def on_pipe_diameter_unit_changed(self, unit: str) -> None:
+    def on_tube_radius_unit_changed(self, unit: str) -> None:
         """Switch displayed unit for pipe diameter while preserving physical value."""
         if unit not in ("mm", "in"):
             return
-        self.pipe_diameter_unit = unit
-        self._sync_pipe_diameter_input_text()
+        self.tube_radius_unit = unit
+        self._sync_tube_radius_input_text()
 
-    def update_pipe_diameter_from_input(self) -> None:
+    def update_tube_radius_from_input(self) -> None:
         """Validate and apply pipe diameter entered by the user."""
-        text = self.pipe_diameter_input.text().strip()
+        text = self.tube_radius_input.text().strip()
         try:
             value = float(text)
             if value <= 0:
                 raise ValueError
 
-            if self.pipe_diameter_unit == "in":
-                self.pipe_diameter_m = value * 0.0254
+            # Convert user-entered diameter to internal radius in meters.
+            if self.tube_radius_unit == "in":
+                self.tube_radius_m = (value * 0.0254) / 2.0
             else:
-                self.pipe_diameter_m = value / 1000.0
+                self.tube_radius_m = (value / 1000.0) / 2.0
 
-            self._sync_pipe_diameter_input_text()
+            self._sync_tube_radius_input_text()
             self.update_pipe_deflection()
         except ValueError:
-            self._sync_pipe_diameter_input_text()
+            self._sync_tube_radius_input_text()
             QMessageBox.warning(self, "Invalid Input", "Pipe diameter must be a positive number")
     
         
@@ -631,22 +626,19 @@ class MainWindow(QMainWindow):
             centerline = self.current_centerline_data['centerline']
             radii = self.current_centerline_data['radii']
 
-            # Imported radii represent curvature metadata, not local bore clearance.
-            bore_diameter_inch = self.borehole_diameter_inch
+            # Use selected outer tube diameter (inches) converted to meters radius
+            bore_diameter_inch = self.outer_tube_diameter_inch
             bore_radius = bore_diameter_inch * 0.0254 / 2
-            pipe_radius = self.pipe_diameter_m / 2.0
+            tube_radius = self.tube_radius_m
+            pipe_outer_diameter_mm = tube_radius * 2.0 * 1000.0
 
             deflected_centerline, contact_points, contact_positions, contact_forces = simulate_pipe_deflection(
-                centerline,
-                tube_radius=pipe_radius,
-                bore_radius=bore_radius,
-                stiffness=0.1,
-                iterations=self.iterations,
+                centerline, tube_radius=tube_radius, bore_radius=bore_radius, stiffness=0.1, iterations=self.iterations
             )
 
             # Update the view with new deflection data and contact forces
             self.view.load_tube_data(centerline, radii, deflected_centerline, contact_points, contact_positions, contact_forces,
-                                    bore_radius=bore_radius, pipe_radius=pipe_radius)
+                                    bore_radius=bore_radius, pipe_radius=tube_radius)
 
             # Update contact points visualization
             from tube_utils import compute_contact_angles
@@ -672,7 +664,7 @@ class MainWindow(QMainWindow):
             # Run pipe stress analysis with the new deflection
             self.pipe_stress_data = analyze_pipe_stress(
                 deflected_centerline,
-                outer_diameter_mm=self.pipe_diameter_m * 1000.0,
+                outer_diameter_mm=pipe_outer_diameter_mm,
             )
             self.view.set_pipe_stress_data(self.pipe_stress_data)
             for d in self.pipe_stress_data:
@@ -721,16 +713,13 @@ class MainWindow(QMainWindow):
                     max_radius = np.max(valid_radii)
                     avg_radius = np.mean(valid_radii)
                     
-                    table.setItem(2, 0, QTableWidgetItem("Min Radius"))
+                    table.setItem(2, 0, QTableWidgetItem("Min Curvature Radius"))
                     table.setItem(2, 1, QTableWidgetItem(f"{min_radius:.2f} m"))
-                    table.setItem(3, 0, QTableWidgetItem("Max Radius"))
+                    table.setItem(3, 0, QTableWidgetItem("Max Curvature Radius"))
                     table.setItem(3, 1, QTableWidgetItem(f"{max_radius:.2f} m"))
-                    table.setItem(4, 0, QTableWidgetItem("Avg Radius"))
+                    table.setItem(4, 0, QTableWidgetItem("Avg CurvatureRadius"))
                     table.setItem(4, 1, QTableWidgetItem(f"{avg_radius:.2f} m"))
                     
-                    hist, _ = np.histogram(valid_radii, bins=[0, 800, 900, 1000, 2000])
-                    table.setItem(5, 0, QTableWidgetItem("Radius Histogram"))
-                    table.setItem(5, 1, QTableWidgetItem(str(hist.tolist())))
                 else:
                     self._set_table_error(table, 2, 5, "No valid radius data")
                     
