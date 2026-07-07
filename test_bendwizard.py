@@ -364,6 +364,71 @@ class TestColorUtils(unittest.TestCase):
                 self.assertGreaterEqual(component, 0.0)
                 self.assertLessEqual(component, 1.0)
 
+    def test_gradient_color_dynamic_scale(self):
+        """Test dynamic threshold mapping with evenly distributed bins."""
+        scale_min = 100.0
+        scale_max = 600.0
+
+        self.assertEqual(
+            ColorUtils.get_gradient_color(120.0, scale_min, scale_max),
+            constants.STRESS_COLOR_VERY_LOW,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(220.0, scale_min, scale_max),
+            constants.STRESS_COLOR_LOW,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(320.0, scale_min, scale_max),
+            constants.STRESS_COLOR_MEDIUM,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(420.0, scale_min, scale_max),
+            constants.STRESS_COLOR_HIGH,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(520.0, scale_min, scale_max),
+            constants.STRESS_COLOR_VERY_HIGH,
+        )
+
+    def test_gradient_color_dynamic_scale_degenerate_range(self):
+        """Test stable fallback color when dynamic scale has no range."""
+        self.assertEqual(
+            ColorUtils.get_gradient_color(500.0, 500.0, 500.0),
+            constants.STRESS_COLOR_MEDIUM,
+        )
+
+    def test_gradient_color_dynamic_scale_outlier_white(self):
+        """Test that values above 2x average are rendered as white outliers."""
+        self.assertEqual(
+            ColorUtils.get_gradient_color(1001.0, 100.0, 600.0, average=500.0),
+            (1.0, 1.0, 1.0, 0.5),
+        )
+
+    def test_gradient_color_quantile_thresholds(self):
+        """Test color mapping when quantile thresholds are provided."""
+        thresholds = (200.0, 300.0, 400.0, 500.0)
+
+        self.assertEqual(
+            ColorUtils.get_gradient_color(150.0, quantile_thresholds=thresholds),
+            constants.STRESS_COLOR_VERY_LOW,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(250.0, quantile_thresholds=thresholds),
+            constants.STRESS_COLOR_LOW,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(350.0, quantile_thresholds=thresholds),
+            constants.STRESS_COLOR_MEDIUM,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(450.0, quantile_thresholds=thresholds),
+            constants.STRESS_COLOR_HIGH,
+        )
+        self.assertEqual(
+            ColorUtils.get_gradient_color(550.0, quantile_thresholds=thresholds),
+            constants.STRESS_COLOR_VERY_HIGH,
+        )
+
 
 class TestIntegration(unittest.TestCase):
     """Integration tests for complete workflow."""

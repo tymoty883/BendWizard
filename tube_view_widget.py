@@ -7,7 +7,7 @@ import math
 import numpy as np
 from PyQt5.QtWidgets import QOpenGLWidget
 from PyQt5.QtCore import Qt, QTimer, QTime
-from PyQt5.QtGui import QFont, QPainter
+from PyQt5.QtGui import QColor, QFont, QPainter
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from tube_generator import TubeGenerator
@@ -41,6 +41,12 @@ class TubeViewWidget(QOpenGLWidget):
         self.distance_labels = []
         self.segment_labels = []
         self.segment_radii = []
+        self.radius_scale_min = None
+        self.radius_scale_max = None
+        self.radius_average = None
+        self.radius_outlier_threshold = None
+        self.radius_quantile_thresholds = None
+        self.radius_quantile_edges = None
         self.render_origin = np.array([0.0, 0.0, 0.0], dtype=float)
         self.render_scale = 1.0
         
@@ -631,6 +637,35 @@ class TubeViewWidget(QOpenGLWidget):
         self.segment_radii = radii
         self.contact_points = contact_points  # n
 
+        self.radius_scale_min = None
+        self.radius_scale_max = None
+        self.radius_average = None
+        self.radius_outlier_threshold = None
+        self.radius_quantile_thresholds = None
+        self.radius_quantile_edges = None
+        if self.segment_radii is not None and len(self.segment_radii) > 0:
+            radii_array = np.asarray(self.segment_radii, dtype=float)
+            valid_radii = radii_array[~np.isnan(radii_array)]
+            if len(valid_radii) > 0:
+                self.radius_average = float(np.mean(valid_radii))
+                self.radius_outlier_threshold = 2.0 * self.radius_average
+                non_outlier_radii = valid_radii[valid_radii <= self.radius_outlier_threshold]
+                if len(non_outlier_radii) == 0:
+                    non_outlier_radii = valid_radii
+
+                self.radius_scale_min = float(np.min(non_outlier_radii))
+                self.radius_scale_max = float(np.max(non_outlier_radii))
+                quantiles = np.quantile(non_outlier_radii, [0.2, 0.4, 0.6, 0.8])
+                self.radius_quantile_thresholds = tuple(float(q) for q in quantiles)
+                self.radius_quantile_edges = (
+                    float(np.min(non_outlier_radii)),
+                    float(quantiles[0]),
+                    float(quantiles[1]),
+                    float(quantiles[2]),
+                    float(quantiles[3]),
+                    float(np.max(non_outlier_radii)),
+                )
+
         if pipe_radius is None:
             pipe_radius = 0.6096
         self.pipe_radius = pipe_radius
@@ -660,7 +695,13 @@ class TubeViewWidget(QOpenGLWidget):
             vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=tube1_radius, n_points=n_points_circle)
             # Use radius for segment (if available) to determine color
             if self.segment_radii is not None and len(self.segment_radii) > i and self.segment_radii[i] is not None:
-                color = ColorUtils.get_gradient_color(self.segment_radii[i])
+                color = ColorUtils.get_gradient_color(
+                    self.segment_radii[i],
+                    self.radius_scale_min,
+                    self.radius_scale_max,
+                    self.radius_average,
+                    self.radius_quantile_thresholds,
+                )
             else:
                 color = (0.5, 0.5, 0.5, 0.5)  # Default gray if no radius
             self.outer_tube_segments.append((vertices, faces, normals, color))
@@ -814,7 +855,13 @@ class TubeViewWidget(QOpenGLWidget):
 
             # Use gradient color based on segment radius
             if self.segment_radii is not None and i < len(self.segment_radii) and self.segment_radii[i] is not None:
-                color = ColorUtils.get_gradient_color(self.segment_radii[i])
+                color = ColorUtils.get_gradient_color(
+                    self.segment_radii[i],
+                    self.radius_scale_min,
+                    self.radius_scale_max,
+                    self.radius_average,
+                    self.radius_quantile_thresholds,
+                )
             else:
                 color = (0.5, 0.5, 0.5, 1.0)  # Default gray if no radius
             self.drawMesh(vertices, faces, normals, color)
@@ -897,6 +944,9 @@ class TubeViewWidget(QOpenGLWidget):
         # Draw FPS counter
         painter.setPen(Qt.white)
         painter.drawText(10, 20, f"FPS: {self.fps:.1f}")
+
+        if self.show_outer_tube:
+            self._draw_borehole_color_legend(painter)
 
         
         # Draw distance labels if enabled
@@ -985,3 +1035,54 @@ class TubeViewWidget(QOpenGLWidget):
                     painter.drawText(int(win_x), int(win_y) - 34, text)
 
         painter.end()
+
+    def _draw_borehole_color_legend(self, painter: QPainter) -> None:
+        """Draw curvature-radius color legend when outer tube visualization is enabled."""
+        legend_width = 260
+        legend_height = 154
+        margin = 12
+        x0 = self.width() - legend_width - margin
+        y0 = margin
+
+        painter.fillRect(x0, y0, legend_width, legend_height, QColor(0, 0, 0, 140))
+        painter.setPen(Qt.white)
+        painter.drawText(x0 + 10, y0 + 20, "Curvature Radius")
+
+        if self.radius_quantile_edges is not None:
+            bounds = self.radius_quantile_edges
+            labels = [
+                f"< {bounds[1]:.1f} m",
+                f"{bounds[1]:.1f} - {bounds[2]:.1f} m",
+                f"{bounds[2]:.1f} - {bounds[3]:.1f} m",
+                f"{bounds[3]:.1f} - {bounds[4]:.1f} m",
+                f">= {bounds[4]:.1f} m",
+            ]
+        else:
+            labels = [
+                "< 600 m",
+                "600 - 800 m",
+                "800 - 1000 m",
+                "1000 - 1600 m",
+                ">= 1600 m",
+            ]
+
+        swatches = [
+            ((1.0, 0.0, 0.0), labels[0]),
+            ((1.0, 0.65, 0.0), labels[1]),
+            ((1.0, 1.0, 0.0), labels[2]),
+            ((0.0, 1.0, 0.0), labels[3]),
+            ((0.0, 0.39, 0.0), labels[4]),
+        ]
+
+        row_y = y0 + 40
+        for color_rgb, label in swatches:
+            color = QColor(
+                int(color_rgb[0] * 255),
+                int(color_rgb[1] * 255),
+                int(color_rgb[2] * 255),
+                220,
+            )
+            painter.fillRect(x0 + 10, row_y - 10, 16, 12, color)
+            painter.setPen(Qt.white)
+            painter.drawText(x0 + 34, row_y, label)
+            row_y += 24
