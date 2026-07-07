@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
         file_button.setMenu(file_menu)
 
         # Add outer tube diameter selector
-        self.diameter_label = QLabel("Outer Tube Diameter [in]:")
+        self.diameter_label = QLabel("Borehole Diameter [in]:")
         self.geometry_popup.addWidget(self.diameter_label)
         self.diameter_combo = QComboBox()
         for d in self.OUTER_TUBE_DIAMETERS:
@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
         self.geometry_popup.addWidget(self.diameter_combo)
         
         # Add toggle button for outer tube visibility
-        toggle_outer_btn = QPushButton("Toggle Outer Tube")
+        toggle_outer_btn = QPushButton("Toggle Borehole")
         toggle_outer_btn.setCheckable(True)
         toggle_outer_btn.setChecked(False)  # Initially visible
         toggle_outer_btn.clicked.connect(self.view.toggle_outer_tube)
@@ -485,7 +485,7 @@ class MainWindow(QMainWindow):
             self.geometry_popup.hide()
 
     def on_outer_tube_diameter_changed(self, value):
-        """Handle changes to the outer tube diameter from the dropdown."""
+        """Handle changes to the Borehole diameter from the dropdown."""
         try:
             self.outer_tube_diameter_inch = int(value)
         except ValueError:

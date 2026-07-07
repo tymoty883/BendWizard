@@ -76,7 +76,7 @@ RING_RADIUS_MULTIPLIER = 1.01
 # ============================================================================
 
 # Available borehole diameters (in inches)
-BOREHOLE_DIAMETERS_INCHES = [i for i in range(26, 64, 2)]
+BOREHOLE_DIAMETERS_INCHES = [i for i in range(12, 64, 2)]
 
 # Default borehole diameter (in inches)
 DEFAULT_BOREHOLE_DIAMETER_INCH = 56

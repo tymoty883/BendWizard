@@ -426,7 +426,7 @@ class TubeViewWidget(QOpenGLWidget):
                     new_distance = self.camera_distance - min_step
                 else:
                     new_distance = self.camera_distance + min_step
-            self.camera_distance = max(0.1, min(1000, new_distance))
+            self.camera_distance = max(0.1, new_distance)
         
         self.last_mouse_pos = event.pos()
         self.update()
@@ -448,7 +448,7 @@ class TubeViewWidget(QOpenGLWidget):
             new_distance = self.camera_distance * zoom_factor
             if abs(new_distance - self.camera_distance) < min_step:
                 new_distance = self.camera_distance + min_step
-            self.camera_distance = min(10000, new_distance)
+            self.camera_distance = max(1, new_distance)
         self.update()
 
     def updateFPS(self):
@@ -472,7 +472,7 @@ class TubeViewWidget(QOpenGLWidget):
     def toggle_outer_tube(self):
         self.show_outer_tube = not self.show_outer_tube
         self.update()
-        print(f"Outer tube {'visible' if self.show_outer_tube else 'hidden'}")
+        print(f"Borehole {'visible' if self.show_outer_tube else 'hidden'}")
         
     def toggle_distance_labels(self) -> None:
         """Toggle distance labels visibility."""
@@ -1027,7 +1027,11 @@ class TubeViewWidget(QOpenGLWidget):
                 )
                 if win_z < 1.0:
                     win_y = viewport[3] - win_y
-                    text = f"{force_val*1000:.2f}"
+                    display_force = force_val * 1000.0
+                    if display_force < 1.0:
+                        continue
+
+                    text = f"{display_force:.2f}"
                     painter.setPen(Qt.black)
                     for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
                         painter.drawText(int(win_x) + dx, int(win_y) + dy - 34, text)
@@ -1037,7 +1041,7 @@ class TubeViewWidget(QOpenGLWidget):
         painter.end()
 
     def _draw_borehole_color_legend(self, painter: QPainter) -> None:
-        """Draw curvature-radius color legend when outer tube visualization is enabled."""
+        """Draw curvature-radius color legend when Borehole visualization is enabled."""
         legend_width = 240
         legend_height = 154
         margin = 12
