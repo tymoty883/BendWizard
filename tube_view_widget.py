@@ -1038,7 +1038,7 @@ class TubeViewWidget(QOpenGLWidget):
 
     def _draw_borehole_color_legend(self, painter: QPainter) -> None:
         """Draw curvature-radius color legend when outer tube visualization is enabled."""
-        legend_width = 260
+        legend_width = 240
         legend_height = 154
         margin = 12
         x0 = self.width() - legend_width - margin
