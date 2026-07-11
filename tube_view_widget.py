@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt, QTimer, QTime
 from PyQt5.QtGui import QColor, QFont, QPainter
 from OpenGL.GL import *
 from OpenGL.GLU import *
+import constants
 from tube_generator import TubeGenerator
 from color_utils import ColorUtils
 
@@ -22,6 +23,26 @@ class TubeViewWidget(QOpenGLWidget):
     def set_pipe_stress_data(self, stress_data):
         self.pipe_stress_data = stress_data
         self.update() 
+
+    def set_radius_classification_lowest_step(self, lowest_step: float) -> None:
+        """Set custom lowest threshold for borehole curvature color classes."""
+        self.radius_classification_lowest_step = float(lowest_step)
+        self.update()
+
+    def _get_custom_radius_thresholds(self):
+        """Build fixed class thresholds shifted by user-selected lowest threshold."""
+        if self.radius_classification_lowest_step is None:
+            return None
+
+        base = float(self.radius_classification_lowest_step)
+        default_base = float(constants.STRESS_COLOR_THRESHOLD_VERY_LOW)
+        offsets = (
+            float(constants.STRESS_COLOR_THRESHOLD_VERY_LOW) - default_base,
+            float(constants.STRESS_COLOR_THRESHOLD_LOW) - default_base,
+            float(constants.STRESS_COLOR_THRESHOLD_MEDIUM) - default_base,
+            float(constants.STRESS_COLOR_THRESHOLD_HIGH) - default_base,
+        )
+        return tuple(base + offset for offset in offsets)
 
 
 
@@ -47,6 +68,7 @@ class TubeViewWidget(QOpenGLWidget):
         self.radius_outlier_threshold = None
         self.radius_quantile_thresholds = None
         self.radius_quantile_edges = None
+        self.radius_classification_lowest_step = None
         self.render_origin = np.array([0.0, 0.0, 0.0], dtype=float)
         self.render_scale = 1.0
         
@@ -695,12 +717,14 @@ class TubeViewWidget(QOpenGLWidget):
             vertices, faces, normals = TubeGenerator.compute_tube_geometry(seg, radius=tube1_radius, n_points=n_points_circle)
             # Use radius for segment (if available) to determine color
             if self.segment_radii is not None and len(self.segment_radii) > i and self.segment_radii[i] is not None:
+                custom_thresholds = self._get_custom_radius_thresholds()
+                active_thresholds = custom_thresholds if custom_thresholds is not None else self.radius_quantile_thresholds
                 color = ColorUtils.get_gradient_color(
                     self.segment_radii[i],
                     self.radius_scale_min,
                     self.radius_scale_max,
                     self.radius_average,
-                    self.radius_quantile_thresholds,
+                    active_thresholds,
                 )
             else:
                 color = (0.5, 0.5, 0.5, 0.5)  # Default gray if no radius
@@ -855,12 +879,14 @@ class TubeViewWidget(QOpenGLWidget):
 
             # Use gradient color based on segment radius
             if self.segment_radii is not None and i < len(self.segment_radii) and self.segment_radii[i] is not None:
+                custom_thresholds = self._get_custom_radius_thresholds()
+                active_thresholds = custom_thresholds if custom_thresholds is not None else self.radius_quantile_thresholds
                 color = ColorUtils.get_gradient_color(
                     self.segment_radii[i],
                     self.radius_scale_min,
                     self.radius_scale_max,
                     self.radius_average,
-                    self.radius_quantile_thresholds,
+                    active_thresholds,
                 )
             else:
                 color = (0.5, 0.5, 0.5, 1.0)  # Default gray if no radius
@@ -1031,7 +1057,7 @@ class TubeViewWidget(QOpenGLWidget):
                     if display_force < 1.0:
                         continue
 
-                    text = f"{display_force:.2f}"
+                    text = f"{display_force:.0f}"
                     painter.setPen(Qt.black)
                     for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
                         painter.drawText(int(win_x) + dx, int(win_y) + dy - 34, text)
@@ -1052,7 +1078,16 @@ class TubeViewWidget(QOpenGLWidget):
         painter.setPen(Qt.white)
         painter.drawText(x0 + 10, y0 + 20, "Curvature Radius")
 
-        if self.radius_quantile_edges is not None:
+        custom_thresholds = self._get_custom_radius_thresholds()
+        if custom_thresholds is not None:
+            labels = [
+                f"< {custom_thresholds[0]:.1f} m",
+                f"{custom_thresholds[0]:.1f} - {custom_thresholds[1]:.1f} m",
+                f"{custom_thresholds[1]:.1f} - {custom_thresholds[2]:.1f} m",
+                f"{custom_thresholds[2]:.1f} - {custom_thresholds[3]:.1f} m",
+                f">= {custom_thresholds[3]:.1f} m",
+            ]
+        elif self.radius_quantile_edges is not None:
             bounds = self.radius_quantile_edges
             labels = [
                 f"< {bounds[1]:.1f} m",

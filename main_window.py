@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QToolBar, QPushButton, QFileDialog,
     QMessageBox, QTabWidget, QTableWidget, QTableWidgetItem, QSplitter, QLabel, QLineEdit,
     QDialog, QDialogButtonBox, QFormLayout, QComboBox, QHBoxLayout, QToolButton,
-    QMenu
+    QMenu, QInputDialog
 )
 from PyQt5.QtGui import QIntValidator, QDoubleValidator
 from PyQt5.QtCore import Qt
@@ -276,6 +276,8 @@ class MainWindow(QMainWindow):
         self.tube_radius_unit: str = "mm"
         self.display_popup: Optional[ToolbarPopupPanel] = None
         self.geometry_popup: Optional[ToolbarPopupPanel] = None
+        self.borehole_classification_configured: bool = False
+        self.toggle_outer_btn: Optional[QPushButton] = None
 
         self.setWindowTitle('Bend Wizard')
         self.resize(1000, 800)
@@ -392,11 +394,11 @@ class MainWindow(QMainWindow):
         self.geometry_popup.addWidget(self.diameter_combo)
         
         # Add toggle button for outer tube visibility
-        toggle_outer_btn = QPushButton("Toggle Borehole")
-        toggle_outer_btn.setCheckable(True)
-        toggle_outer_btn.setChecked(False)  # Initially visible
-        toggle_outer_btn.clicked.connect(self.view.toggle_outer_tube)
-        self.display_popup.addWidget(toggle_outer_btn)
+        self.toggle_outer_btn = QPushButton("Toggle Borehole")
+        self.toggle_outer_btn.setCheckable(True)
+        self.toggle_outer_btn.setChecked(False)  # Initially hidden
+        self.toggle_outer_btn.clicked.connect(self.on_toggle_borehole_clicked)
+        self.display_popup.addWidget(self.toggle_outer_btn)
         
         # Add toggle button for distance labels
         toggle_labels_btn = QPushButton("Toggle Distance Labels")
@@ -607,6 +609,38 @@ class MainWindow(QMainWindow):
             # Reset to last valid value if input is invalid
             self.iterations_input.setText(str(self.iterations))
             QMessageBox.warning(self, "Invalid Input", "Please enter a valid integer")
+
+    def on_toggle_borehole_clicked(self) -> None:
+        """Toggle Borehole visibility and request color classification floor on first enable."""
+        turning_on = not self.view.show_outer_tube
+        if turning_on and not self.borehole_classification_configured:
+            default_lowest = float(constants.STRESS_COLOR_THRESHOLD_VERY_LOW)
+            value, ok = QInputDialog.getDouble(
+                self,
+                "Borehole Color Classification",
+                "Lowest curvature radius threshold [m]:",
+                default_lowest,
+                0.0,
+                1_000_000_000.0,
+                1,
+            )
+            if not ok:
+                if self.toggle_outer_btn is not None:
+                    self.toggle_outer_btn.blockSignals(True)
+                    self.toggle_outer_btn.setChecked(self.view.show_outer_tube)
+                    self.toggle_outer_btn.blockSignals(False)
+                return
+
+            self.view.set_radius_classification_lowest_step(float(value))
+            self.borehole_classification_configured = True
+            if self.current_centerline_data:
+                self.update_pipe_deflection()
+
+        self.view.toggle_outer_tube()
+        if self.toggle_outer_btn is not None:
+            self.toggle_outer_btn.blockSignals(True)
+            self.toggle_outer_btn.setChecked(self.view.show_outer_tube)
+            self.toggle_outer_btn.blockSignals(False)
 
     def update_pipe_deflection(self) -> None:
         """Recalculate pipe deflection with current parameters and update visualization."""
